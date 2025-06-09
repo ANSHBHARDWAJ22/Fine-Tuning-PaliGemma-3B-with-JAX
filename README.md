@@ -102,3 +102,64 @@ The training dataset is expected in **JSONL** format. Example:
   "prefix": "<input prompt>",
   "suffix": "<target output text>"
 }
+```
+## 6. Data Visualization
+
+For sanity checking the dataset, utilities are included to:
+
+- Render images inline using **base64 HTML encoding**
+- Display the corresponding text captions alongside the image
+
+This helps ensure that both **images and text inputs** are correctly aligned before starting training.
+
+---
+
+## 7. Training & Evaluation
+
+### Training Loop
+
+- Compute **loss only on the suffix tokens**.
+- Loss **excludes**:
+  - Prefix tokens
+  - Padding tokens
+- Use **Stochastic Gradient Descent (SGD)** to update **only** the attention layers.
+- Optionally, implement **learning rate schedules** for better convergence and stability.
+
+### Evaluation Loop
+
+- Use the `decode()` function to generate predictions for the **validation dataset**.
+- Apply **padding** to incomplete batches to maintain consistent batch sizes.
+- Use **attention masks** to **ignore padded predictions** during evaluation metric computation.
+
+---
+
+## 8. Concepts and Strategies
+
+This fine-tuning approach uses several key strategies to maximize efficiency:
+
+- **Frozen Parameters:** Freezing most of the model **drastically reduces memory usage** and **speeds up training**.
+- **Sharding:** Splits model parameters **across multiple devices** (GPUs/TPUs) for handling large models.
+- **Mixed Precision Training:** Uses **float16** wherever possible **without compromising numerical stability**.
+- **Masked Language Modeling:** The model **predicts only the suffix tokens**, conditioned on the input **image** and **prefix text**.
+- **Multimodal Input:** Trains the model to **combine visual and textual features** for coherent and contextually accurate generation.
+
+---
+
+## 9. Next Steps
+
+- **Customize the training loop** for your dataset and task.
+- Experiment with different **optimizers** and **learning rate schedules**.
+- Use `decode()` for generating predictions on **new, unseen data**.
+- **Evaluate** the model using both:
+  - **Quantitative** metrics (e.g., BLEU, CIDEr, ROUGE)
+  - **Qualitative** inspection (visual + text results)
+
+### For Advanced Applications:
+
+- Implement **learning rate warmup and decay schedules** for better convergence.
+- Evaluate on **standard VQA or captioning benchmarks** for robust performance comparisons.
+- Apply **dataset augmentation** techniques to improve **generalization**.
+
+---
+
+
