@@ -1,163 +1,104 @@
-# Fine-Tuning-PaliGemma-3B-with-JAX
+# Fine-Tuning PaliGemma-3B with JAX
 
-This repository provides a complete guide for fine-tuning the PaliGemma-3B model using JAX. The setup focuses on efficient fine-tuning of large multimodal models on limited hardware, such as consumer GPUs (T4, A10G) or TPUs.
+This repository provides a complete guide for fine-tuning the **PaliGemma-3B** model using **JAX**. The setup focuses on **efficient fine-tuning of large multimodal models on limited hardware**, such as consumer GPUs (T4, A10G) or TPUs.
 
-PaliGemma is a vision-language transformer (VLT) built on Google's Gemma language model architecture. It is designed for tasks where the model generates text outputs conditioned on both an input image and an optional text prefix. Typical use-cases include image captioning, visual question answering (VQA), and multimodal reasoning.
+PaliGemma is a **vision-language transformer (VLT)** built on top of Google's Gemma language model architecture. It is designed for generating text conditioned on both images and optional text prefixes. Example use cases include:
 
-This guide demonstrates how to fine-tune the model efficiently by freezing most parameters and training only the attention layers within the language model.
+- Image Captioning
+- Visual Question Answering (VQA)
+- Multimodal Reasoning Tasks
 
-Contents
-Import Dependencies
+This guide demonstrates how to fine-tune the model efficiently by **freezing most parameters** and **training only the attention layers** of the language model.
 
-Download & Configure Model
+---
 
-Shard & Optimize Parameters
+## Table of Contents
 
-Input Preparation
+1. [Import Dependencies](#1-import-dependencies)
+2. [Download & Configure Model](#2-download--configure-model)
+3. [Shard & Optimize Parameters](#3-shard--optimize-parameters)
+4. [Input Preparation](#4-input-preparation)
+5. [Dataset Iterators](#5-dataset-iterators)
+6. [Data Visualization](#6-data-visualization)
+7. [Training & Evaluation](#7-training--evaluation)
+8. [Concepts and Strategies](#8-concepts-and-strategies)
+9. [Next Steps](#9-next-steps)
 
-Dataset Iterators
+---
 
-Data Visualization
+## 1. Import Dependencies
 
-Training & Evaluation
+We use a combination of standard libraries and project-specific modules:
 
-Concepts and Strategies
+- **Core Compute:** `jax`, `jax.numpy`, `numpy`
+- **Data Handling:** `tensorflow`, `json`, `os`
+- **Tokenization:** `sentencepiece`
+- **Visualization:** `PIL`, `IPython.display`
+- **Progress Bars:** `tqdm`
+- **Project Modules:** `big_vision.models.proj.paligemma`, `big_vision.trainers.proj.paligemma`
 
-1. Import Dependencies
-We use a combination of general-purpose libraries and project-specific modules:
+Note: TensorFlow is used for input pipeline utilities but its device execution is disabled to allow JAX full access to available hardware.
 
-Core compute: jax, jax.numpy, numpy
+---
 
-Dataset and file handling: tensorflow, json, os
+## 2. Download & Configure Model
 
-Tokenization: sentencepiece
+### Checkpoints
 
-Visualization: PIL, IPython.display
+- **Model Weights:** `paligemma-3b-pt-224.f16.npz`
+- **Tokenizer:** `paligemma_tokenizer.model`
 
-Progress indicators: tqdm
+Download them using `kagglehub` or manually.
 
-Project code: big_vision.models.proj.paligemma, big_vision.trainers.proj.paligemma
+### Configuration
 
-Note: TensorFlow is used for input pipeline utilities but disabled for device execution to allow JAX to fully utilize the available hardware.
+- Define a `FrozenConfigDict` specifying model architecture (layers, heads, embedding dimensions).
+- Instantiate the **PaliGemma** model.
+- Load the pretrained weights into the model.
+- Setup the `decode()` function for generating text from output tokens.
 
-2. Download and Configure Model
-Checkpoints
-Model Weights: paligemma-3b-pt-224.f16.npz
+The pretrained model uses **float16 precision** to optimize memory usage.
 
-Tokenizer: paligemma_tokenizer.model
+---
 
-Both are loaded using kagglehub or manual download.
+## 3. Shard & Optimize Parameters
 
-Configuration
-We define a FrozenConfigDict specifying architecture details like layer sizes, number of layers, etc.
+Fine-tuning large models on constrained hardware requires efficient memory management. The key strategies used:
 
-Instantiate the PaliGemma model.
+- **Freeze Parameters:** Only the **attention layers** (`llm/layers/attn/`) are trainable. Embeddings, MLPs, and other components remain frozen.
+- **Mixed Precision:** Frozen parameters are cast to `float16`; trainable parameters remain in `float32` for stability.
+- **Sharding:** Parameters are distributed across available devices (multi-GPU/TPU environments).
+- **Sequential Loading:** Model parameters are loaded in parts to avoid memory spikes during initialization.
 
-Load pretrained weights into the model.
+---
 
-Setup the decode() function for text generation.
+## 4. Input Preparation
 
-The model checkpoint uses float16 precision for memory efficiency.
+### Image Preprocessing
 
-3. Shard and Optimize Parameters
-Fine-tuning large language-vision models on constrained hardware requires careful memory management. Key strategies include:
+- Resize all images to `(224, 224)` resolution.
+- Normalize pixel values to the range `[-1, 1]`.
 
-Freeze Parameters: Only attention layers within the LLM are trainable (llm/layers/attn/). Freezing embeddings, MLPs, and other layers drastically reduces memory consumption.
+### Text Tokenization
 
-Mixed Precision: Frozen parameters are cast to float16 to save space; trainable parameters remain in float32 for numerical stability during updates.
+- Tokenize both the **prefix** (input prompt) and the **suffix** (target text) using the provided SentencePiece tokenizer.
+- Generate **attention masks**:
+  - **Prefix:** Fully attended (all tokens see each other).
+  - **Suffix:** Causal (each token only attends to previous tokens).
 
-Sharding: Parameters are distributed across available devices (GPUs/TPUs) to optimize compute-memory trade-offs.
+### Output Decoding
 
-Sequential Loading: Parameters are loaded incrementally to avoid memory spikes during initialization.
+Generated token IDs are decoded back into human-readable text using the tokenizer's decode function.
 
-4. Input Preparation
-Image Processing
-Resize images to (224, 224) resolution.
+---
 
-Normalize pixel values to the range [-1, 1].
+## 5. Dataset Iterators
 
-Text Tokenization
-Tokenize both the text prefix (prompt) and target (suffix) using the SentencePiece tokenizer.
+The training dataset is expected in **JSONL** format. Example:
 
-Generate attention masks:
-
-Prefix: Fully attended (all tokens visible to each other)
-
-Suffix: Causal mask (each token can only see preceding tokens)
-
-Output Decoding
-The generated token IDs are decoded back into human-readable text after prediction.
-
-5. Dataset Iterators
-The training dataset is expected in JSONL format, where each line corresponds to one data sample, structured as:
-
-json
-Copy
-Edit
+```json
 {
   "image": "<image filename>",
   "prefix": "<input prompt>",
   "suffix": "<target output text>"
 }
-Two types of iterators:
-
-Training Iterator: Infinite looping iterator with random shuffling.
-
-Validation Iterator: Single complete pass without shuffling for evaluation consistency.
-
-Each sample yields the image tensor, tokenized prefix, tokenized suffix, and attention masks.
-
-6. Data Visualization
-For sanity checks during dataset preparation, we include utilities to:
-
-Render images inline (using base64 HTML)
-
-Display corresponding text captions
-
-This provides a quick preview of the dataset before initiating training.
-
-7. Training and Evaluation
-Training Loop
-For each training step, compute the loss over the suffix tokens only. Loss excludes prefix tokens and any padding.
-
-Use Stochastic Gradient Descent (SGD) to update only the trainable attention parameters.
-
-Apply learning rate schedules if required for better convergence.
-
-Evaluation Loop
-Generate predictions for the validation set using the decode() function.
-
-Since the dataset size might not evenly divide into batches, padding is applied to incomplete batches.
-
-Masks are used to ignore padded predictions when computing evaluation metrics.
-
-8. Concepts and Strategies
-This approach relies on several key strategies for scalable fine-tuning:
-
-Frozen Parameters: By freezing most of the model, memory consumption and training time are drastically reduced.
-
-Sharding: Spreads parameters across multiple devices, enabling larger models to fit into limited memory.
-
-Mixed Precision Training: Uses float16 where possible, without compromising numerical stability.
-
-Masked Language Modeling: The model learns to predict only the suffix tokens, conditioned on the image and prefix.
-
-Multi-modal Input: Trains the model to fuse visual and textual context effectively for coherent generation.
-
-Next Steps
-Customize the training loop for your dataset.
-
-Experiment with different learning rates and optimizer settings.
-
-Use decode() for generating predictions on new, unseen data.
-
-Evaluate model performance qualitatively and quantitatively.
-
-For advanced applications, consider implementing:
-
-Learning rate warmup and decay schedules
-
-Evaluation on standardized VQA benchmarks
-
-Dataset augmentation techniques for improved generalization
-
